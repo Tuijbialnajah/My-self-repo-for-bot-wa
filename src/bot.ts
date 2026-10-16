@@ -27,16 +27,16 @@ async function startBot() {
         printQRInTerminal: false,
     });
 
-  let isPairingRequested = false;
+    let isPairingRequested = false;
 
+    // 1. Connection Update: Pairing Code & Reconnection Handlers
     sock.ev.on("connection.update", async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // Jaise hi socket connecting ya QR ready state mein aaye aur bot unregistered ho:
+        // Request pairing code safely when socket is connecting or ready for QR
         if (!sock.authState.creds.registered && !isPairingRequested && (connection === "connecting" || qr)) {
             isPairingRequested = true;
             try {
-                // 2 second ka chota wait taaki socket handshake complete ho
                 await new Promise(res => setTimeout(res, 2000));
                 
                 const phoneNumber = process.env.BOT_PHONE_NUMBER || 
@@ -52,7 +52,7 @@ async function startBot() {
                 console.log("👉 WhatsApp > Linked Devices > Link with Phone Number > Enter code!\n");
             } catch (err: any) {
                 console.error("❌ Failed to get pairing code:", err?.message || err);
-                isPairingRequested = false; // Retry if failed
+                isPairingRequested = false;
             }
         }
 
@@ -68,28 +68,11 @@ async function startBot() {
             console.log("========================================\n");
         }
     });
-    else {
-        console.log("⚡ Session already exists! Logging in directly without pairing code...");
-    }
 
+    // 2. Save credentials whenever refreshed
     sock.ev.on("creds.update", saveCreds);
 
-    sock.ev.on("connection.update", (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === "close") {
-            const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log("⚠️ Connection closed. Reconnecting:", shouldReconnect);
-            if (shouldReconnect) {
-                setTimeout(() => startBot(), 3000);
-            }
-        } else if (connection === "open") {
-            console.log("\n========================================");
-            console.log("✅ BOT CONNECTED TO WHATSAPP SUCCESSFULLY! 🎉");
-            console.log("========================================\n");
-        }
-    });
-
-    // 2. Incoming Message Dispatcher with DM-Only Security Check
+    // 3. Incoming Message Dispatcher - DM & Self-Bot Only
     sock.ev.on("messages.upsert", async ({ messages }) => {
         const msg = messages[0];
         if (!msg.message) return;
@@ -101,10 +84,8 @@ async function startBot() {
         const remoteJid = msg.key.remoteJid || "";
         const sender = msg.key.participant || remoteJid;
 
-        // 🔒 SECURITY CHECK 1: Ignore all Groups (Only allow personal DMs)
+        // Block all Groups (Only allow personal DMs)
         if (remoteJid.endsWith("@g.us")) return;
-
-        
 
         const [cmdName, ...args] = text.slice(1).trim().split(/\s+/);
         const lowerCmd = cmdName.toLowerCase();
