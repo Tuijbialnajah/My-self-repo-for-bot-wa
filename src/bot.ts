@@ -18,7 +18,7 @@ async function startBot() {
         auth: state,
         logger: pino({ level: "silent" }),
         printQRInTerminal: false,
-        browser: Browsers.macOS("Desktop"),
+        browser: Browsers.ubuntu("Chrome"),
         syncFullHistory: false,
         generateHighQualityLinkPreview: false,
         markOnlineOnConnect: true,
@@ -27,7 +27,6 @@ async function startBot() {
         keepAliveIntervalMs: 15000,
     });
 
-    // Handle pairing code with bulletproof retry loop
     if (!sock.authState.creds.registered) {
         const rawPhone = process.env.BOT_PHONE_NUMBER || "919891478164";
         const cleanNumber = rawPhone.replace(/[^0-9]/g, "");
@@ -41,18 +40,17 @@ async function startBot() {
                     console.log(`⏳ [Attempt ${retryCount + 1}] Requesting pairing code for +${cleanNumber}...`);
                     const code = await sock.requestPairingCode(cleanNumber);
                     console.log(`\n========================================`);
-                    console.log(`🔑 YOUR PAIRING CODE: [ ${code} ]`);
+                    console.log(`🔑 FRESH PAIRING CODE: [ ${code} ]`);
                     console.log(`========================================\n`);
-                    console.log("👉 WhatsApp > Linked Devices > Link with Phone Number > Enter code!\n");
+                    console.log("👉 WhatsApp > Linked Devices > Link with Phone Number > Enter code right away!\n");
                 } catch (err: any) {
-                    console.error(`⚠️ Attempt ${retryCount + 1} failed (${err?.message || err}). Retrying in 4s...`);
+                    console.error(`⚠️ Attempt ${retryCount + 1} failed (${err?.message || err}). Retrying in 5s...`);
                     if (retryCount < 5) {
-                        setTimeout(() => requestPairing(retryCount + 1), 4000);
+                        setTimeout(() => requestPairing(retryCount + 1), 5000);
                     }
                 }
             };
 
-            // Initial 6-second delay ensures full TLS & noise handshake is ready
             setTimeout(() => requestPairing(0), 6000);
         }
     }
