@@ -68,7 +68,8 @@ async function startBot() {
     // 2. Incoming Message Dispatcher with DM-Only Security Check
     sock.ev.on("messages.upsert", async ({ messages }) => {
         const msg = messages[0];
-        if (!msg.message || msg.key.fromMe) return;
+        if (!msg.message) return;
+        if (!msg.key.fromMe) return;
 
         const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
         if (!text.startsWith(".")) return;
@@ -79,9 +80,7 @@ async function startBot() {
         // 🔒 SECURITY CHECK 1: Ignore all Groups (Only allow personal DMs)
         if (remoteJid.endsWith("@g.us")) return;
 
-        // 🔒 SECURITY CHECK 2: Only allow YOUR WhatsApp number!
-        const myNumber = "917217660457"; // <-- Make sure this is your number
-        if (!sender.includes(myNumber)) return;
+        
 
         const [cmdName, ...args] = text.slice(1).trim().split(/\s+/);
         const lowerCmd = cmdName.toLowerCase();
