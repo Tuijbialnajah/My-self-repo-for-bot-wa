@@ -26,15 +26,27 @@ async function startBot() {
         printQRInTerminal: false,
     });
 
+    // 1. Safe Pairing Code: Wait for socket handshake before requesting code
     if (!sock.authState.creds.registered) {
-        const phoneNumber = process.env.BOT_PHONE_NUMBER || 
-            await question("📱 Enter WhatsApp Phone Number (with Country Code, e.g. 917217660457): ");
-        const cleanNumber = phoneNumber.replace(/[^0-9]/g, "");
-        const code = await sock.requestPairingCode(cleanNumber);
-        console.log(`\n========================================`);
-        console.log(`🔑 YOUR PAIRING CODE: [ ${code} ]`);
-        console.log(`========================================\n`);
-        console.log("👉 WhatsApp > Linked Devices > Link with Phone Number > Enter code!\n");
+        setTimeout(async () => {
+            try {
+                const phoneNumber = process.env.BOT_PHONE_NUMBER || 
+                    await question("📱 Enter WhatsApp Phone Number (with Country Code, e.g. 917217660457): ");
+                const cleanNumber = phoneNumber.replace(/[^0-9]/g, "");
+                
+                console.log(`⏳ Requesting pairing code for +${cleanNumber}...`);
+                const code = await sock.requestPairingCode(cleanNumber);
+                
+                console.log(`\n========================================`);
+                console.log(`🔑 YOUR PAIRING CODE: [ ${code} ]`);
+                console.log(`========================================\n`);
+                console.log("👉 WhatsApp > Linked Devices > Link with Phone Number > Enter code!\n");
+            } catch (err: any) {
+                console.error("❌ Failed to get pairing code:", err?.message || err);
+                console.log("🔄 Re-attempting connection in 5 seconds...");
+                setTimeout(() => startBot(), 5000);
+            }
+        }, 3000); // 3-second delay ensures socket handshake is ready!
     }
 
     sock.ev.on("creds.update", saveCreds);
@@ -44,9 +56,13 @@ async function startBot() {
         if (connection === "close") {
             const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log("⚠️ Connection closed. Reconnecting:", shouldReconnect);
-            if (shouldReconnect) startBot();
+            if (shouldReconnect) {
+                setTimeout(() => startBot(), 3000);
+            }
         } else if (connection === "open") {
+            console.log("\n========================================");
             console.log("✅ BOT CONNECTED TO WHATSAPP SUCCESSFULLY! 🎉");
+            console.log("========================================\n");
         }
     });
 
