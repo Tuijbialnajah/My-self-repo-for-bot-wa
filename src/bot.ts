@@ -26,7 +26,7 @@ async function startBot() {
         printQRInTerminal: false,
     });
 
-    // 1. Safe Pairing Code: Wait for socket handshake before requesting code
+    // 1. Safe Pairing Code: Wait 3s for socket handshake before requesting code
     if (!sock.authState.creds.registered) {
         setTimeout(async () => {
             try {
@@ -43,10 +43,9 @@ async function startBot() {
                 console.log("👉 WhatsApp > Linked Devices > Link with Phone Number > Enter code!\n");
             } catch (err: any) {
                 console.error("❌ Failed to get pairing code:", err?.message || err);
-                console.log("🔄 Re-attempting connection in 5 seconds...");
                 setTimeout(() => startBot(), 5000);
             }
-        }, 3000); // 3-second delay ensures socket handshake is ready!
+        }, 3000);
     }
 
     sock.ev.on("creds.update", saveCreds);
@@ -66,12 +65,23 @@ async function startBot() {
         }
     });
 
+    // 2. Incoming Message Dispatcher with DM-Only Security Check
     sock.ev.on("messages.upsert", async ({ messages }) => {
         const msg = messages[0];
         if (!msg.message || msg.key.fromMe) return;
 
         const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
         if (!text.startsWith(".")) return;
+
+        const remoteJid = msg.key.remoteJid || "";
+        const sender = msg.key.participant || remoteJid;
+
+        // 🔒 SECURITY CHECK 1: Ignore all Groups (Only allow personal DMs)
+        if (remoteJid.endsWith("@g.us")) return;
+
+        // 🔒 SECURITY CHECK 2: Only allow YOUR WhatsApp number!
+        const myNumber = "917217660457"; // <-- Make sure this is your number
+        if (!sender.includes(myNumber)) return;
 
         const [cmdName, ...args] = text.slice(1).trim().split(/\s+/);
         const lowerCmd = cmdName.toLowerCase();
@@ -82,8 +92,8 @@ async function startBot() {
             await matched.execute({
                 sock,
                 msg,
-                groupId: msg.key.remoteJid!,
-                senderId: msg.key.participant || msg.key.remoteJid!,
+                groupId: remoteJid,
+                senderId: sender,
                 command: lowerCmd,
                 args,
                 text: args.join(" "),
