@@ -1,7 +1,8 @@
 import makeWASocket, { 
     useMultiFileAuthState, 
     DisconnectReason,
-    fetchLatestBaileysVersion
+    fetchLatestBaileysVersion,
+    Browsers
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import readline from "readline";
@@ -20,11 +21,16 @@ async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const { version } = await fetchLatestBaileysVersion();
 
+    // Fix: Explicit Browser Identity prevents WhatsApp from dropping cloud WebSocket handshakes
     const sock = makeWASocket({
         version,
         auth: state,
         logger: pino({ level: "silent" }),
         printQRInTerminal: false,
+        browser: Browsers.ubuntu("Chrome"),
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 10000,
     });
 
     let isPairingRequested = false;
@@ -37,10 +43,10 @@ async function startBot() {
         if (!sock.authState.creds.registered && !isPairingRequested && (connection === "connecting" || qr)) {
             isPairingRequested = true;
             try {
-                await new Promise(res => setTimeout(res, 2000));
+                // Wait 4 seconds for complete TLS / noise protocol handshake
+                await new Promise(res => setTimeout(res, 4000));
                 
-                const phoneNumber = process.env.BOT_PHONE_NUMBER || 
-                    await question("📱 Enter WhatsApp Phone Number (with Country Code): ");
+                const phoneNumber = process.env.BOT_PHONE_NUMBER || "917217660457";
                 const cleanNumber = phoneNumber.replace(/[^0-9]/g, "");
                 
                 console.log(`⏳ Requesting pairing code for +${cleanNumber}...`);
