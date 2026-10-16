@@ -44,7 +44,16 @@ async function startBot() {
             try {
                 await new Promise(res => setTimeout(res, 4000));
                 
-                const phoneNumber = process.env.BOT_PHONE_NUMBER || "919891478164";
+                // Reads purely from Railway Environment Variable (or terminal question if local)
+                const phoneNumber = process.env.BOT_PHONE_NUMBER || 
+                    await question("📱 Enter WhatsApp Phone Number (with Country Code): ");
+                
+                if (!phoneNumber || !phoneNumber.trim()) {
+                    console.error("❌ ERROR: BOT_PHONE_NUMBER environment variable is not set in Railway!");
+                    isPairingRequested = false;
+                    return;
+                }
+
                 const cleanNumber = phoneNumber.replace(/[^0-9]/g, "");
                 
                 console.log(`⏳ Requesting pairing code for +${cleanNumber}...`);
