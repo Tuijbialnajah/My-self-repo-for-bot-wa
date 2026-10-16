@@ -27,14 +27,20 @@ async function startBot() {
         printQRInTerminal: false,
     });
 
-    // 1. Check karo: Agar bot pehle se linked hai, to pairing code bilkul MAT maango!
-    if (!sock.authState.creds.registered) {
-        setTimeout(async () => {
-            if (sock.authState.creds.registered) return;
+  let isPairingRequested = false;
 
+    sock.ev.on("connection.update", async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        // Jaise hi socket connecting ya QR ready state mein aaye aur bot unregistered ho:
+        if (!sock.authState.creds.registered && !isPairingRequested && (connection === "connecting" || qr)) {
+            isPairingRequested = true;
             try {
+                // 2 second ka chota wait taaki socket handshake complete ho
+                await new Promise(res => setTimeout(res, 2000));
+                
                 const phoneNumber = process.env.BOT_PHONE_NUMBER || 
-                    await question("📱 Enter WhatsApp Phone Number (with Country Code, e.g. 917217660457): ");
+                    await question("📱 Enter WhatsApp Phone Number (with Country Code): ");
                 const cleanNumber = phoneNumber.replace(/[^0-9]/g, "");
                 
                 console.log(`⏳ Requesting pairing code for +${cleanNumber}...`);
@@ -46,9 +52,23 @@ async function startBot() {
                 console.log("👉 WhatsApp > Linked Devices > Link with Phone Number > Enter code!\n");
             } catch (err: any) {
                 console.error("❌ Failed to get pairing code:", err?.message || err);
+                isPairingRequested = false; // Retry if failed
             }
-        }, 5000);
-    } else {
+        }
+
+        if (connection === "close") {
+            const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log("⚠️ Connection closed. Reconnecting:", shouldReconnect);
+            if (shouldReconnect) {
+                setTimeout(() => startBot(), 3000);
+            }
+        } else if (connection === "open") {
+            console.log("\n========================================");
+            console.log("✅ BOT CONNECTED TO WHATSAPP SUCCESSFULLY! 🎉");
+            console.log("========================================\n");
+        }
+    });
+    else {
         console.log("⚡ Session already exists! Logging in directly without pairing code...");
     }
 
