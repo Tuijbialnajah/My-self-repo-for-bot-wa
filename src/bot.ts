@@ -5,16 +5,8 @@ import makeWASocket, {
     Browsers
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
-import readline from "readline";
 import pino from "pino";
 import { commands } from "./commands/index.js";
-
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-});
-const question = (query: string): Promise<string> => 
-    new Promise(resolve => rl.question(query, resolve));
 
 async function startBot() {
     const sessionDir = process.env.RAILWAY_VOLUME_MOUNT_PATH || "/app/auth_info_baileys";
@@ -26,49 +18,49 @@ async function startBot() {
         auth: state,
         logger: pino({ level: "silent" }),
         printQRInTerminal: false,
-        browser: Browsers.ubuntu("Chrome"),
+        browser: Browsers.macOS("Desktop"),
+        syncFullHistory: false,
+        generateHighQualityLinkPreview: false,
+        markOnlineOnConnect: true,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
-        keepAliveIntervalMs: 10000,
+        keepAliveIntervalMs: 15000,
     });
 
-    let isPairingRequested = false;
+    // Handle pairing code with bulletproof retry loop
+    if (!sock.authState.creds.registered) {
+        const rawPhone = process.env.BOT_PHONE_NUMBER || "919891478164";
+        const cleanNumber = rawPhone.replace(/[^0-9]/g, "");
 
-    // 1. Connection Update: Pairing Code & Reconnection Handlers
-    sock.ev.on("connection.update", async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-
-        // Request pairing code safely when socket is connecting or ready for QR
-        if (!sock.authState.creds.registered && !isPairingRequested && (connection === "connecting" || qr)) {
-            isPairingRequested = true;
-            try {
-                await new Promise(res => setTimeout(res, 4000));
-                
-                // Reads purely from Railway Environment Variable (or terminal question if local)
-                const phoneNumber = process.env.BOT_PHONE_NUMBER || 
-                    await question("📱 Enter WhatsApp Phone Number (with Country Code): ");
-                
-                if (!phoneNumber || !phoneNumber.trim()) {
-                    console.error("❌ ERROR: BOT_PHONE_NUMBER environment variable is not set in Railway!");
-                    isPairingRequested = false;
-                    return;
+        if (!cleanNumber) {
+            console.error("❌ ERROR: Please set BOT_PHONE_NUMBER in Railway Variables!");
+        } else {
+            const requestPairing = async (retryCount = 0) => {
+                if (sock.authState.creds.registered) return;
+                try {
+                    console.log(`⏳ [Attempt ${retryCount + 1}] Requesting pairing code for +${cleanNumber}...`);
+                    const code = await sock.requestPairingCode(cleanNumber);
+                    console.log(`\n========================================`);
+                    console.log(`🔑 YOUR PAIRING CODE: [ ${code} ]`);
+                    console.log(`========================================\n`);
+                    console.log("👉 WhatsApp > Linked Devices > Link with Phone Number > Enter code!\n");
+                } catch (err: any) {
+                    console.error(`⚠️ Attempt ${retryCount + 1} failed (${err?.message || err}). Retrying in 4s...`);
+                    if (retryCount < 5) {
+                        setTimeout(() => requestPairing(retryCount + 1), 4000);
+                    }
                 }
+            };
 
-                const cleanNumber = phoneNumber.replace(/[^0-9]/g, "");
-                
-                console.log(`⏳ Requesting pairing code for +${cleanNumber}...`);
-                const code = await sock.requestPairingCode(cleanNumber);
-                
-                console.log(`\n========================================`);
-                console.log(`🔑 YOUR PAIRING CODE: [ ${code} ]`);
-                console.log(`========================================\n`);
-                console.log("👉 WhatsApp > Linked Devices > Link with Phone Number > Enter code!\n");
-            } catch (err: any) {
-                console.error("❌ Failed to get pairing code:", err?.message || err);
-                isPairingRequested = false;
-            }
+            // Initial 6-second delay ensures full TLS & noise handshake is ready
+            setTimeout(() => requestPairing(0), 6000);
         }
+    }
 
+    sock.ev.on("creds.update", saveCreds);
+
+    sock.ev.on("connection.update", (update) => {
+        const { connection, lastDisconnect } = update;
         if (connection === "close") {
             const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log("⚠️ Connection closed. Reconnecting:", shouldReconnect);
@@ -82,10 +74,6 @@ async function startBot() {
         }
     });
 
-    // 2. Save credentials whenever refreshed
-    sock.ev.on("creds.update", saveCreds);
-
-    // 3. Incoming Message Dispatcher - DM & Self-Bot Only
     sock.ev.on("messages.upsert", async ({ messages }) => {
         const msg = messages[0];
         if (!msg.message) return;
@@ -97,7 +85,6 @@ async function startBot() {
         const remoteJid = msg.key.remoteJid || "";
         const sender = msg.key.participant || remoteJid;
 
-        // Block all Groups (Only allow personal DMs)
         if (remoteJid.endsWith("@g.us")) return;
 
         const [cmdName, ...args] = text.slice(1).trim().split(/\s+/);
