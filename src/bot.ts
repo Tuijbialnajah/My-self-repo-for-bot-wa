@@ -16,7 +16,8 @@ const question = (query: string): Promise<string> =>
     new Promise(resolve => rl.question(query, resolve));
 
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState("auth_info_baileys");
+    const sessionDir = process.env.RAILWAY_VOLUME_MOUNT_PATH || "/app/auth_info_baileys";
+    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
