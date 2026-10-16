@@ -27,9 +27,11 @@ async function startBot() {
         printQRInTerminal: false,
     });
 
-    // 1. Safe Pairing Code: Wait 3s for socket handshake before requesting code
+    // 1. Check karo: Agar bot pehle se linked hai, to pairing code bilkul MAT maango!
     if (!sock.authState.creds.registered) {
         setTimeout(async () => {
+            if (sock.authState.creds.registered) return;
+
             try {
                 const phoneNumber = process.env.BOT_PHONE_NUMBER || 
                     await question("📱 Enter WhatsApp Phone Number (with Country Code, e.g. 917217660457): ");
@@ -44,9 +46,10 @@ async function startBot() {
                 console.log("👉 WhatsApp > Linked Devices > Link with Phone Number > Enter code!\n");
             } catch (err: any) {
                 console.error("❌ Failed to get pairing code:", err?.message || err);
-                setTimeout(() => startBot(), 5000);
             }
-        }, 3000);
+        }, 5000);
+    } else {
+        console.log("⚡ Session already exists! Logging in directly without pairing code...");
     }
 
     sock.ev.on("creds.update", saveCreds);
