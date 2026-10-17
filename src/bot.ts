@@ -72,34 +72,55 @@ async function startBot() {
         }
     });
 
+    // 🚀 BULLETPROOF SELF-BOT MESSAGE EXTRACTOR
     sock.ev.on("messages.upsert", async ({ messages }) => {
         const msg = messages[0];
-        if (!msg.message) return;
-        if (!msg.key.fromMe) return;
+        if (!msg || !msg.message) return;
 
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
+        // 1. Extract pure text across all WhatsApp message wrappers (conversation, extended, ephemeral)
+        const messageContent = msg.message.ephemeralMessage?.message || msg.message.viewOnceMessage?.message || msg.message;
+        const text = (
+            messageContent.conversation ||
+            messageContent.extendedTextMessage?.text ||
+            messageContent.imageMessage?.caption ||
+            messageContent.videoMessage?.caption ||
+            ""
+        ).trim();
+
         if (!text.startsWith(".")) return;
 
         const remoteJid = msg.key.remoteJid || "";
+
+        // 🔒 BLOCK GROUPS & STATUS BROADCASTS (Only personal/self chats)
+        if (remoteJid.endsWith("@g.us") || remoteJid === "status@broadcast") return;
+
+        // Clean user sender ID
         const sender = msg.key.participant || remoteJid;
 
-        if (remoteJid.endsWith("@g.us")) return;
+        console.log(`📩 [Self-Bot Received]: "${text}" from: ${sender}`);
 
         const [cmdName, ...args] = text.slice(1).trim().split(/\s+/);
         const lowerCmd = cmdName.toLowerCase();
 
         const matched = commands.find(c => c.name === lowerCmd || c.aliases?.includes(lowerCmd));
         if (matched) {
-            console.log(`⚡ Executing command: .${lowerCmd}`);
-            await matched.execute({
-                sock,
-                msg,
-                groupId: remoteJid,
-                senderId: sender,
-                command: lowerCmd,
-                args,
-                text: args.join(" "),
-            });
+            console.log(`⚡ Executing .${lowerCmd} in ${remoteJid}...`);
+            try {
+                await matched.execute({
+                    sock,
+                    msg,
+                    groupId: remoteJid,
+                    senderId: sender,
+                    command: lowerCmd,
+                    args,
+                    text: args.join(" "),
+                });
+                console.log(`✅ Successfully responded to .${lowerCmd}!`);
+            } catch (cmdErr) {
+                console.error(`❌ Error executing .${lowerCmd}:`, cmdErr);
+            }
+        } else {
+            console.log(`❓ Command not found: .${lowerCmd}`);
         }
     });
 }
