@@ -12,7 +12,6 @@ import { commands } from "./commands/index.js";
 async function startBot(forceClean = false) {
     const sessionDir = process.env.RAILWAY_VOLUME_MOUNT_PATH || "/app/auth_info_baileys";
 
-    // If session is corrupt or forced clean, wipe it!
     if (forceClean) {
         console.log("🧹 Force cleaning corrupt session directory...");
         try {
@@ -27,23 +26,24 @@ async function startBot(forceClean = false) {
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const { version } = await fetchLatestBaileysVersion();
 
+    // Instant Login Config: syncFullHistory false prevents "Loading chats..." freeze!
     const sock = makeWASocket({
         version,
         auth: state,
-        logger: pino({ level: "silent" }),
+        logger: pino({ level: "fatal" }),
         printQRInTerminal: false,
-        browser: Browsers.ubuntu("Chrome"),
+        browser: Browsers.macOS("Desktop"),
         syncFullHistory: false,
+        markOnlineOnConnect: false,
         generateHighQualityLinkPreview: false,
-        markOnlineOnConnect: true,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 15000,
+        shouldSyncHistoryMessage: () => false,
     });
 
     let isPairingRequested = false;
 
-    // Handle pairing code cleanly
     if (!sock.authState.creds.registered) {
         const rawPhone = process.env.BOT_PHONE_NUMBER || "919891478164";
         const cleanNumber = rawPhone.replace(/[^0-9]/g, "");
@@ -60,7 +60,7 @@ async function startBot(forceClean = false) {
             } catch (err: any) {
                 console.error(`⚠️ Attempt ${retryCount + 1} failed (${err?.message || err}).`);
                 if (retryCount >= 2) {
-                    console.log("🔄 Session seems corrupt. Auto-wiping and restarting fresh...");
+                    console.log("🔄 Auto-wiping and restarting fresh...");
                     setTimeout(() => startBot(true), 2000);
                 } else {
                     setTimeout(() => requestPairing(retryCount + 1), 4000);
