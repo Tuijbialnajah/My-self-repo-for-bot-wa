@@ -9,7 +9,7 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.18",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "@hapi/boom": "^10.0.1",
     "pino": "^9.6.0",
     "qrcode-terminal": "^0.12.0"
