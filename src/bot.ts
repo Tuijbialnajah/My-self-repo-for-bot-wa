@@ -1,8 +1,7 @@
 import makeWASocket, { 
     useMultiFileAuthState, 
     DisconnectReason,
-    fetchLatestBaileysVersion,
-    Browsers
+    fetchLatestBaileysVersion
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import pino from "pino";
@@ -13,36 +12,30 @@ async function startBot(forceClean = false) {
     const sessionDir = process.env.RAILWAY_VOLUME_MOUNT_PATH || "/app/auth_info_baileys";
 
     if (forceClean) {
-        console.log("🧹 Force cleaning corrupt session directory...");
+        console.log("🧹 Cleaning session directory...");
         try {
             if (fsExtra.existsSync(sessionDir)) {
                 fsExtra.rmSync(sessionDir, { recursive: true, force: true });
             }
-        } catch (e) {
-            console.error("Clean error:", e);
-        }
+        } catch (e) {}
     }
 
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const { version } = await fetchLatestBaileysVersion();
 
-    // Instant Login Config: syncFullHistory false prevents "Loading chats..." freeze!
+    // Official WhatsApp Web client signature
     const sock = makeWASocket({
         version,
         auth: state,
         logger: pino({ level: "fatal" }),
         printQRInTerminal: false,
-        browser: Browsers.macOS("Desktop"),
+        browser: ["Chrome (Linux)", "", ""],
         syncFullHistory: false,
         markOnlineOnConnect: false,
-        generateHighQualityLinkPreview: false,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
-        keepAliveIntervalMs: 15000,
-        shouldSyncHistoryMessage: () => false,
+        keepAliveIntervalMs: 25000,
     });
-
-    let isPairingRequested = false;
 
     if (!sock.authState.creds.registered) {
         const rawPhone = process.env.BOT_PHONE_NUMBER || "919891478164";
@@ -51,16 +44,15 @@ async function startBot(forceClean = false) {
         const requestPairing = async (retryCount = 0) => {
             if (sock.authState.creds.registered) return;
             try {
-                console.log(`⏳ [Attempt ${retryCount + 1}] Requesting pairing code for +${cleanNumber}...`);
+                console.log(`⏳ Requesting fresh pairing code for +${cleanNumber}...`);
                 const code = await sock.requestPairingCode(cleanNumber);
                 console.log(`\n========================================`);
-                console.log(`🔑 FRESH PAIRING CODE: [ ${code} ]`);
+                console.log(`🔑 PAIRING CODE: [ ${code} ]`);
                 console.log(`========================================\n`);
                 console.log("👉 WhatsApp > Linked Devices > Link with Phone Number > Enter code right away!\n");
             } catch (err: any) {
                 console.error(`⚠️ Attempt ${retryCount + 1} failed (${err?.message || err}).`);
                 if (retryCount >= 2) {
-                    console.log("🔄 Auto-wiping and restarting fresh...");
                     setTimeout(() => startBot(true), 2000);
                 } else {
                     setTimeout(() => requestPairing(retryCount + 1), 4000);
@@ -68,7 +60,7 @@ async function startBot(forceClean = false) {
             }
         };
 
-        setTimeout(() => requestPairing(0), 6000);
+        setTimeout(() => requestPairing(0), 5000);
     }
 
     sock.ev.on("creds.update", saveCreds);
@@ -81,7 +73,7 @@ async function startBot(forceClean = false) {
             console.log(`⚠️ Connection closed (Status: ${statusCode}). Logged out: ${isLoggedOut}`);
             
             if (isLoggedOut || statusCode === 401) {
-                console.log("🧹 Unlink detected. Wiping dead session folder...");
+                console.log("🧹 Session unlinked. Restarting fresh...");
                 setTimeout(() => startBot(true), 2000);
                 return;
             }
