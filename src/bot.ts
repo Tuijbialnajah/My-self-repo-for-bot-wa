@@ -1,7 +1,9 @@
-import makeWASocket, { 
+import { 
+    makeWASocket, 
     useMultiFileAuthState, 
     DisconnectReason,
-    fetchLatestBaileysVersion
+    fetchLatestBaileysVersion,
+    Browsers
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import pino from "pino";
@@ -23,44 +25,53 @@ async function startBot(forceClean = false) {
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const { version } = await fetchLatestBaileysVersion();
 
-    // Official WhatsApp Web client signature
+    // Exact configuration matching AI Studio working applet
     const sock = makeWASocket({
         version,
         auth: state,
-        logger: pino({ level: "fatal" }),
+        logger: pino({ level: "silent" }),
         printQRInTerminal: false,
-        browser: ["Chrome (Linux)", "", ""],
+        browser: Browsers.ubuntu("Chrome"),
         syncFullHistory: false,
-        markOnlineOnConnect: false,
-        connectTimeoutMs: 60000,
+        shouldSyncHistoryMessage: () => false,
         defaultQueryTimeoutMs: 60000,
-        keepAliveIntervalMs: 25000,
+        connectTimeoutMs: 60000,
+        keepAliveIntervalMs: 30000,
     });
 
     if (!sock.authState.creds.registered) {
         const rawPhone = process.env.BOT_PHONE_NUMBER || "919891478164";
-        const cleanNumber = rawPhone.replace(/[^0-9]/g, "");
+        const sanitizedPhone = rawPhone.replace(/[^0-9]/g, "");
 
-        const requestPairing = async (retryCount = 0) => {
-            if (sock.authState.creds.registered) return;
+        setTimeout(async () => {
             try {
-                console.log(`⏳ Requesting fresh pairing code for +${cleanNumber}...`);
-                const code = await sock.requestPairingCode(cleanNumber);
+                let code: string | undefined;
+                let attempts = 0;
+
+                console.log(`Requesting pairing code for +${sanitizedPhone}...`);
+
+                while (attempts < 6) {
+                    try {
+                        code = await sock.requestPairingCode(sanitizedPhone);
+                        if (code) break;
+                    } catch (e: any) {
+                        attempts++;
+                        console.log(`[PairingCode] Socket handshake in progress, retrying in 3s (Attempt ${attempts}/6)...`, e?.message || e);
+                        await new Promise(r => setTimeout(r, 3000));
+                    }
+                }
+
+                if (!code) throw new Error("Failed to get pairing code after multiple attempts.");
+
+                const formattedCode = code.match(/.{1,4}/g)?.join("-") || code;
                 console.log(`\n========================================`);
-                console.log(`🔑 PAIRING CODE: [ ${code} ]`);
+                console.log(`✅ PAIRING CODE: [ ${formattedCode} ]`);
                 console.log(`========================================\n`);
                 console.log("👉 WhatsApp > Linked Devices > Link with Phone Number > Enter code right away!\n");
             } catch (err: any) {
-                console.error(`⚠️ Attempt ${retryCount + 1} failed (${err?.message || err}).`);
-                if (retryCount >= 2) {
-                    setTimeout(() => startBot(true), 2000);
-                } else {
-                    setTimeout(() => requestPairing(retryCount + 1), 4000);
-                }
+                console.error("Error requesting pairing code:", err);
             }
-        };
-
-        setTimeout(() => requestPairing(0), 5000);
+        }, 3000);
     }
 
     sock.ev.on("creds.update", saveCreds);
