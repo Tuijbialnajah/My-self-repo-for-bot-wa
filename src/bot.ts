@@ -6,6 +6,7 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import pino from "pino";
+import fsExtra from "fs";
 import { commands } from "./commands/index.js";
 
 async function startBot() {
@@ -60,11 +61,26 @@ async function startBot() {
     sock.ev.on("connection.update", (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === "close") {
-            const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log("⚠️ Connection closed. Reconnecting:", shouldReconnect);
-            if (shouldReconnect) {
-                setTimeout(() => startBot(), 3000);
+            const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+            const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+            console.log(`⚠️ Connection closed (Status: ${statusCode}). Logged out: ${isLoggedOut}`);
+            
+            // 🚨 IF LOGGED OUT: Wipe old dead credentials so fresh pairing code generates immediately!
+            if (isLoggedOut) {
+                console.log("🧹 Unlink detected. Wiping dead session folder to generate fresh pairing code...");
+                try {
+                    if (fsExtra.existsSync(sessionDir)) {
+                        fsExtra.rmSync(sessionDir, { recursive: true, force: true });
+                    }
+                } catch (e) {
+                    console.error("Failed to clean sessionDir:", e);
+                }
+                setTimeout(() => startBot(), 2000);
+                return;
             }
+
+            // Normal reconnect for transient drops
+            setTimeout(() => startBot(), 3000);
         } else if (connection === "open") {
             console.log("\n========================================");
             console.log("✅ BOT CONNECTED TO WHATSAPP SUCCESSFULLY! 🎉");
@@ -72,12 +88,10 @@ async function startBot() {
         }
     });
 
-    // 🚀 BULLETPROOF SELF-BOT MESSAGE EXTRACTOR
     sock.ev.on("messages.upsert", async ({ messages }) => {
         const msg = messages[0];
         if (!msg || !msg.message) return;
 
-        // 1. Extract pure text across all WhatsApp message wrappers (conversation, extended, ephemeral)
         const messageContent = msg.message.ephemeralMessage?.message || msg.message.viewOnceMessage?.message || msg.message;
         const text = (
             messageContent.conversation ||
@@ -90,11 +104,8 @@ async function startBot() {
         if (!text.startsWith(".")) return;
 
         const remoteJid = msg.key.remoteJid || "";
-
-        // 🔒 BLOCK GROUPS & STATUS BROADCASTS (Only personal/self chats)
         if (remoteJid.endsWith("@g.us") || remoteJid === "status@broadcast") return;
 
-        // Clean user sender ID
         const sender = msg.key.participant || remoteJid;
 
         console.log(`📩 [Self-Bot Received]: "${text}" from: ${sender}`);
@@ -119,8 +130,6 @@ async function startBot() {
             } catch (cmdErr) {
                 console.error(`❌ Error executing .${lowerCmd}:`, cmdErr);
             }
-        } else {
-            console.log(`❓ Command not found: .${lowerCmd}`);
         }
     });
 }
